@@ -1,0 +1,79 @@
+sudo dnf install cmake ninja-build clang lld
+
+git clone --depth 1 https://github.com/llvm/llvm-project.git (in another folder)
+
+llvm/lib/Target/RISCV/ ------> Modify tablegen
+
+RISCVInstrInfo.td
+
+add this 
+
+// Add this near the other custom or R-type instructions
+let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
+def MYADD : RVInstR<0b0000000, 0b000, OPC_CUSTOM_0, 
+                   (outs GPR:$rd), (ins GPR:$rs1, GPR:$rs2), 
+                   "myadd", "$rd, $rs1, $rs2">;
+
+
+
+llvm/include/llvm/IR/IntrinsicsRISCV.td
+
+// Define a custom intrinsic that takes two integers and returns one
+let TargetPrefix = "riscv" in {
+  def int_riscv_myadd : Intrinsic<[llvm_anyint_ty], 
+                                  [LLVMMatchType<0>, LLVMMatchType<0>], 
+                                  [IntrNoMem]>;
+}
+
+llvm/lib/Target/RISCV/RISCVInstrInfo.td
+
+// Pattern: If you see the myadd intrinsic, emit the MYADD instruction
+def : Pat<(int_riscv_myadd GPR:$rs1, GPR:$rs2),
+          (MYADD GPR:$rs1, GPR:$rs2)>;
+
+clang/include/clang/Basic/BuiltinsRISCV.td
+
+// Define your custom builtin mapping
+def myadd : RISCVBuiltin<"long(long, long)">;
+
+clang/lib/CodeGen/CGBuiltin.cpp
+
+case RISCV::BI__builtin_riscv_myadd: {
+    // Map the Clang builtin ID to your LLVM intrinsic ID
+    ID = Intrinsic::riscv_myadd; 
+    break;
+}
+
+# 1. Create and enter the build directory
+mkdir build
+cd build
+
+# 2. Configure the build system (using Ninja for speed)
+# We only build the RISCV target to save massive amounts of time
+cmake -G Ninja ../llvm \
+  -DLLVM_ENABLE_PROJECTS="clang" \
+  -DLLVM_TARGETS_TO_BUILD="RISCV" \
+  -DCMAKE_BUILD_TYPE=Release 
+
+# 3. Start compiling! Grab a coffee, this will take some time.
+ninja
+
+--- first fail
+clang/include/clang/Basic/BuiltinsRISCV.td
+
+// Use standard 'int' instead of 'long'
+def myadd : RISCVBuiltin<"int(int, int)">;
+
+--- second fail
+llvm/lib/Target/RISCV/RISCVInstrInfo.td
+def : Pat<(int_riscv_myadd GPR:$rs1, GPR:$rs2),
+          (MYADD GPR:$rs1, GPR:$rs2)>;
+
+--- third fail
+clang/lib/CodeGen/CGBuiltin.cpp
+case RISCV::BI__builtin_riscv_myadd: {
+      // THIS is the missing piece! It tells LLVM to use i32 or i64 based on the C code.
+      IntrinsicTypes = {ResultType}; 
+      ID = Intrinsic::riscv_myadd; 
+      break;
+  }

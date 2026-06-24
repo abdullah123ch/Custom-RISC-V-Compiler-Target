@@ -1,0 +1,8 @@
+For C to ASM
+
+./bin/clang -S -O3 -ffreestanding --target=riscv32 -march=rv32i -mabi=ilp32 sw/stream.c -o sw/stream.S 
+
+
+➜ ./bin/clang --target=riscv32 -march=rv32i -nostdlib -fuse-ld=lld -Wl,-Ttext=0x0 -Wl,--image-base=0 sw/program.S -o sw/program.elf
+➜ ./bin/llvm-objcopy -O binary --only-section=.text sw/program.elf sw/program.bin
+hexdump -v -e '1/4 "%08x\n"' sw/program.bin > sw/program.hex
